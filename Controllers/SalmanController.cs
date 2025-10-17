@@ -22,7 +22,7 @@ namespace firstAPI.Controllers
         {
             _httpClientFactory = httpClientFactory;
             _connection = conig.GetConnectionString("SalmanSmarterAspdotnet"); // for Internet
-           // _connection = conig.GetConnectionString("Salman"); // for local testing
+            //_connection = conig.GetConnectionString("Salman"); // for local testing
         }
         [HttpPost("ValidUser")]
         public ActionResult<IDictionary<string, object>> ValidUser(ValidUser validUser) 
