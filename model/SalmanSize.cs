@@ -1,6 +1,6 @@
 ﻿namespace firstAPI.model
 {
-    public class Size
+    public class SalmanSize
     {
         public int? SizeID { get; set; }
         public string Name { get; set; }

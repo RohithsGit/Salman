@@ -5,8 +5,9 @@ using Microsoft.Data.SqlClient;
 using System.Data;
 using Newtonsoft.Json;
 using Microsoft.AspNetCore.Authorization;
-
-
+using System.Drawing;
+using OfficeOpenXml;
+using OfficeOpenXml.Style;
 
 namespace firstAPI.Controllers
 {
@@ -15,11 +16,13 @@ namespace firstAPI.Controllers
     public class SalmanController : ControllerBase
     {
         public string _connection;
+        
         private readonly IHttpClientFactory _httpClientFactory;
         public SalmanController(IConfiguration conig,IHttpClientFactory httpClientFactory)
         {
             _httpClientFactory = httpClientFactory;
-            _connection = conig.GetConnectionString("Salman");
+            _connection = conig.GetConnectionString("SalmanSmarterAspdotnet"); // for Internet
+           // _connection = conig.GetConnectionString("Salman"); // for local testing
         }
         [HttpPost("ValidUser")]
         public ActionResult<IDictionary<string, object>> ValidUser(ValidUser validUser) 
@@ -49,9 +52,6 @@ namespace firstAPI.Controllers
                     }
                 }
             }
-
-
-
         }
         [HttpGet("usp_GetDropdowuns")]
         public ActionResult<IDictionary<string, object>> usp_GetDropdowuns()
@@ -146,7 +146,7 @@ namespace firstAPI.Controllers
             }
         }
         [HttpPost("sizes")]
-        public ActionResult<List<IDictionary<string, object>>> GetSizes(Size size)
+        public ActionResult<List<IDictionary<string, object>>> GetSizes(SalmanSize size)
         {
             using (SqlConnection sqlConnection = new SqlConnection(_connection))
             {
@@ -210,7 +210,7 @@ namespace firstAPI.Controllers
             }
         }
         [HttpPost("colors")]
-        public ActionResult<List<IDictionary<string, object>>> ColorsAction([FromBody] Color model)
+        public ActionResult<List<IDictionary<string, object>>> ColorsAction([FromBody] SalmanColor model)
         {
             using (SqlConnection sqlConnection = new SqlConnection(_connection))
             {
@@ -341,6 +341,118 @@ namespace firstAPI.Controllers
                 return Ok(new { success = true, result });
 
             return StatusCode((int)response.StatusCode, new { success = false, result });
+        }
+
+        [HttpPost("SaveBill")]
+        public async Task<IActionResult> SaveBill([FromForm] FileUploadModel model)
+        {
+            model.CustomFolderPath = "D:\\Billphots";
+            var file = model.File;
+            if (file == null || file.Length == 0)
+                return BadRequest("No file uploaded.");
+
+            string folderToUse = string.IsNullOrWhiteSpace(model.CustomFolderPath)
+                ? Path.Combine(Directory.GetCurrentDirectory(), "bills", DateTime.Now.ToString("yyyy-MM-dd"))
+                : model.CustomFolderPath;   // Use the provided folder if available
+
+            if (!Directory.Exists(folderToUse))
+                Directory.CreateDirectory(folderToUse);
+
+            string fileName = $"bill-{DateTime.Now.Ticks}{Path.GetExtension(file.FileName)}";
+            string fileFullPath = Path.Combine(folderToUse, fileName);
+
+            using (var stream = new FileStream(fileFullPath, FileMode.Create))
+            {
+                await file.CopyToAsync(stream);
+            }
+
+            return Ok(new { filePath = fileFullPath });
+        }
+
+        [HttpPost("CreateExcelTemplate")]
+        public IActionResult CreateExcelTemplate()
+        {
+            string folderPath = "D:\\ExcelUploads";
+            if (!Directory.Exists(folderPath))
+                Directory.CreateDirectory(folderPath);
+
+            string fileName = $"ProductTemplate-{DateTime.Now.Ticks}.xlsx";
+            string fileFullPath = Path.Combine(folderPath, fileName);
+
+            ExcelPackage.LicenseContext = LicenseContext.NonCommercial;
+
+            using (var package = new ExcelPackage())
+            {
+                var worksheet = package.Workbook.Worksheets.Add("Products");
+                string[] headers = { "SlNo", "ProductName", "Category", "Size", "Brand","Color", "ActualPrice", "SellingPrice" };
+                for (int i = 0; i < headers.Length; i++)
+                {
+                    worksheet.Cells[1, i + 1].Value = headers[i];
+                }
+                using (var headerRange = worksheet.Cells[1, 1, 1, headers.Length])
+                {
+                    headerRange.Style.Font.Bold = true;
+                    headerRange.Style.Fill.PatternType = ExcelFillStyle.Solid;
+                    headerRange.Style.Fill.BackgroundColor.SetColor(Color.LightGray);
+                }
+                worksheet.Cells[worksheet.Dimension.Address].AutoFitColumns();
+                package.SaveAs(new FileInfo(fileFullPath));
+            }
+
+            return Ok(new { message = "Excel template created successfully", filePath = fileFullPath });
+        }
+
+        [HttpPost("BulkInsertProducts")]
+        public IActionResult BulkInsertProducts([FromBody] List<BulkProduct> items)
+        {
+            var dt = new DataTable();
+            dt.Columns.Add("SlNo", typeof(int));
+            dt.Columns.Add("ProductName", typeof(string));
+            dt.Columns.Add("Category", typeof(string));
+            dt.Columns.Add("Size", typeof(string));
+            dt.Columns.Add("Brand", typeof(string));
+            dt.Columns.Add("Color", typeof(string));
+            dt.Columns.Add("ActualPrice", typeof(decimal));
+            dt.Columns.Add("SellingPrice", typeof(decimal));
+
+            foreach (var item in items)
+            {
+                dt.Rows.Add(
+                    item.SlNo ?? (object)DBNull.Value,
+                    item.ProductName ?? (object)DBNull.Value,
+                    item.Category ?? (object)DBNull.Value,
+                    item.Size ?? (object)DBNull.Value,
+                    item.Brand ?? (object)DBNull.Value,
+                    item.Color ?? (object)DBNull.Value,
+                    item.ActualPrice ?? (object)DBNull.Value,
+                    item.SellingPrice ?? (object)DBNull.Value
+                );
+            }
+
+            using (SqlConnection conn = new SqlConnection(_connection))
+            using (SqlCommand cmd = new SqlCommand("dbo.usp_BulkInsertProducts", conn))
+            {
+                cmd.CommandType = CommandType.StoredProcedure;
+                var tvpParam = cmd.Parameters.AddWithValue("@UploadTable", dt);
+                tvpParam.SqlDbType = SqlDbType.Structured;
+                tvpParam.TypeName = "dbo.ProductUploadType";
+                conn.Open();
+
+                using (SqlDataReader reader = cmd.ExecuteReader())
+                {
+                    var result = new List<Dictionary<string, object>>();
+                    while (reader.Read())
+                    {
+                        var row = new Dictionary<string, object>();
+                        for (int i = 0; i < reader.FieldCount; i++)
+                        {
+                            row[reader.GetName(i)] = reader.IsDBNull(i) ? null : reader.GetValue(i);
+                        }
+                        result.Add(row);
+                    }
+                    return Ok(result);
+                }
+            }
         }
     }
 }

@@ -1,6 +1,6 @@
 ﻿namespace firstAPI.model
 {
-    public class Color
+    public class SalmanColor
     {
         public int? ColorID { get; set; }
         public string Name { get; set; }
