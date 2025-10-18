@@ -25,32 +25,49 @@ namespace firstAPI.Controllers
             //_connection = conig.GetConnectionString("Salman"); // for local testing
         }
         [HttpPost("ValidUser")]
-        public ActionResult<IDictionary<string, object>> ValidUser(ValidUser validUser) 
+        public ActionResult<IEnumerable<Dictionary<string, object>>> ValidUser([FromBody] ValidUser validUser)
         {
-            using (SqlConnection sqlConnection = new SqlConnection(_connection))
-            {
-                sqlConnection.Open();
-                using (SqlCommand cmd = new SqlCommand("LoginUser", sqlConnection))
-                {
-                    cmd.CommandType = CommandType.StoredProcedure;
-                    cmd.Parameters.AddWithValue("@UserName", validUser.UserName);
-                    cmd.Parameters.AddWithValue("@Password", validUser.Password);
+            if (validUser == null)
+                return BadRequest("User data is required.");
 
-                    using (SqlDataReader reader = cmd.ExecuteReader())
+            if (string.IsNullOrEmpty(_connection))
+                return StatusCode(500, "Database connection string is missing.");
+
+            try
+            {
+                using (SqlConnection sqlConnection = new SqlConnection(_connection))
+                {
+                    sqlConnection.Open();
+
+                    using (SqlCommand cmd = new SqlCommand("LoginUser", sqlConnection))
                     {
-                        var result = new List<Dictionary<string, object>>();
-                        while (reader.Read())
+                        if (cmd == null)
+                            return StatusCode(500, "SqlCommand failed to initialize.");
+
+                        cmd.CommandType = CommandType.StoredProcedure;
+                        cmd.Parameters.AddWithValue("@UserName", validUser.UserName ?? (object)DBNull.Value);
+                        cmd.Parameters.AddWithValue("@Password", validUser.Password ?? (object)DBNull.Value);
+
+                        using (SqlDataReader reader = cmd.ExecuteReader())
                         {
-                            var row = new Dictionary<string, object>();
-                            for (int i = 0; i < reader.FieldCount; i++)
+                            var result = new List<Dictionary<string, object>>();
+                            while (reader.Read())
                             {
-                                row[reader.GetName(i)] = reader.IsDBNull(i) ? null : reader.GetValue(i);
+                                var row = new Dictionary<string, object>();
+                                for (int i = 0; i < reader.FieldCount; i++)
+                                {
+                                    row[reader.GetName(i)] = reader.IsDBNull(i) ? null : reader.GetValue(i);
+                                }
+                                result.Add(row);
                             }
-                            result.Add(row);
+                            return Ok(result);
                         }
-                        return Ok(result); // Return HTTP 200 with the data
                     }
                 }
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, ex.ToString());
             }
         }
         [HttpGet("usp_GetDropdowuns")]
