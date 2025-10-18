@@ -3,7 +3,6 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddHttpClient();
 builder.Services.AddControllers();
 
-// Enable all CORS for development (any frontend address)
 builder.Services.AddCors(options =>
 {
     options.AddPolicy("AllowAll", policy =>
@@ -19,15 +18,23 @@ builder.Services.AddSwaggerGen();
 
 var app = builder.Build();
 
-if (app.Environment.IsDevelopment())
+// Enable Swagger/SwaggerUI in all environments (live/demo)
+app.UseSwagger();
+app.UseSwaggerUI();
+
+// Redirect root to Swagger
+app.Use(async (context, next) =>
 {
-    app.UseSwagger();
-    app.UseSwaggerUI();
-}
+    if (context.Request.Path == "/")
+    {
+        context.Response.Redirect("/swagger");
+        return;
+    }
+    await next();
+});
 
 // Enable CORS BEFORE authorization/controllers!
 app.UseCors("AllowAll");
-
 app.UseAuthorization();
 
 app.MapControllers();
